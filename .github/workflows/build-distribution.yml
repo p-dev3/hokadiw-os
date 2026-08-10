@@ -54,12 +54,26 @@ jobs:
           set -euo pipefail
           source config.env
 
-          rm -rf artifact
-          mkdir -p artifact
-          cp -a dist/app artifact/apk
-          cp -a "dist/runtime/bootstrap-${HOKADIW_ARCH}.zip" artifact/
-          cp -a dist/runtime/apt-repo artifact/apt-repo
+          # Validate build artifacts exist before proceeding
+          if [ ! -d "dist/app" ]; then
+            echo "ERROR: dist/app not found. Build app step may have failed." >&2
+            exit 1
+          fi
+          if [ ! -d "dist/runtime" ]; then
+            echo "ERROR: dist/runtime not found. Build runtime step may have failed." >&2
+            exit 1
+          fi
 
+          # Clean and prepare artifact directory
+          rm -rf ./artifact
+          mkdir -p ./artifact
+
+          # Copy with explicit paths and error checking
+          cp -a dist/app ./artifact/apk
+          cp -a "dist/runtime/bootstrap-${HOKADIW_ARCH}.zip" ./artifact/
+          cp -a dist/runtime/apt-repo ./artifact/apt-repo
+
+          # Write BUILD_INFO.txt
           {
             echo "HOKADIW Terminal v${HOKADIW_VERSION}"
             echo "Application ID: ${HOKADIW_PACKAGE}"
@@ -69,7 +83,7 @@ jobs:
             echo "termux-app: ${TERMUX_APP_REF}"
             echo "Source commit: ${GITHUB_SHA}"
             echo "Built at: $(date -u +%FT%TZ)"
-          } > artifact/BUILD_INFO.txt
+          } > ./artifact/BUILD_INFO.txt
 
       - name: Upload HOKADIW distribution
         uses: actions/upload-artifact@v6
