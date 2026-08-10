@@ -1,0 +1,93 @@
+name: Build HOKADIW Distribution
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: hokadiw-distribution-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-arm64:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout HOKADIW build overlay
+        uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl dpkg-dev git gzip python3 zip unzip
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify host and overlay
+        run: |
+          docker --version
+          bash scripts/verify.sh
+
+      - name: Build HOKADIW runtime, packages, and bootstrap
+        run: |
+          set -o pipefail
+          bash scripts/build-runtime.sh 2>&1 | tee build-runtime.log
+
+      - name: Build HOKADIW Terminal APK
+        run: |
+          set -o pipefail
+          bash scripts/build-app.sh 2>&1 | tee build-app.log
+
+      - name: Assemble distribution artifact
+        run: |
+          set -euo pipefail
+          source config.env
+
+          rm -rf artifact
+          mkdir -p artifact
+          cp -a dist/app artifact/apk
+          cp -a "dist/runtime/bootstrap-${HOKADIW_ARCH}.zip" artifact/
+          cp -a dist/runtime/apt-repo artifact/apt-repo
+
+          {
+            echo "HOKADIW Terminal v${HOKADIW_VERSION}"
+            echo "Application ID: ${HOKADIW_PACKAGE}"
+            echo "PREFIX: /data/data/${HOKADIW_PACKAGE}/files/usr"
+            echo "Architecture: ${HOKADIW_ARCH} / ${HOKADIW_ANDROID_ABI}"
+            echo "termux-packages: ${TERMUX_PACKAGES_REF}"
+            echo "termux-app: ${TERMUX_APP_REF}"
+            echo "Source commit: ${GITHUB_SHA}"
+            echo "Built at: $(date -u +%FT%TZ)"
+          } > artifact/BUILD_INFO.txt
+
+      - name: Upload HOKADIW distribution
+        uses: actions/upload-artifact@v6
+        with:
+          name: hokadiw-distribution-arm64
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: hokadiw-build-diagnostics
+          path: |
+            build-runtime.log
+            build-app.log
+            .work/termux-packages/HOKADIW_BUILD_IDENTITY.txt
+            .work/termux-app/HOKADIW_APP_IDENTITY.txt
+          if-no-files-found: ignore
+          retention-days: 7

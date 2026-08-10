@@ -1,19 +1,34 @@
-# Upstream / License Notice
+# Upstream and security notes
 
-HOKADIW Termux Edition is based on and builds from the Termux project.
+HOKADIW Terminal v0.1.1 is derived from the Termux upstream projects, including `termux-app`,
+`termux-packages`, and the packages fetched and compiled by that build system.
 
-Upstream source:
-- https://github.com/termux/termux-app
+Upstream Termux requires forks that change the Android package name to update application/runtime
+constants and rebuild the bootstrap and native packages for the new hard-coded prefix. This build
+overlay performs those steps for `com.hokadiw.terminal` while retaining the upstream Java namespace.
 
-The Termux app repository is distributed under GPL-3.0. When distributing a modified Termux binary,
-you must comply with the upstream license and provide the corresponding source in the manner required
-by that license.
+## Licensing
 
-This toolkit keeps its modifications as a reproducible patch script. A workflow build records the
-upstream commit SHA used for the APK so the modified source can be reconstructed from:
+The files authored specifically for this build overlay are licensed under MIT unless a file states
+otherwise. Termux and every bundled package retain their own upstream licenses. Distribution of an
+APK, bootstrap, or package repository must include required attribution and corresponding source
+offers for copyleft components.
 
-1. the recorded upstream Termux commit; and
-2. `scripts/patch_termux.py` from the matching HOKADIW toolkit revision.
+## Development repository trust
 
-"HOKADIW Termux Edition" is an independent modified build and is not an official Termux release.
-Do not represent it as being published or supported by the Termux maintainers.
+The v0.1.1 development APT source uses `trusted=yes`, which disables APT repository-signature
+verification. It is limited to proving the independent build pipeline.
+
+Before public release:
+
+- create and protect a persistent HOKADIW APT signing key;
+- publish the public key/keyring;
+- generate and sign `Release` and `InRelease` metadata;
+- remove `trusted=yes`; and
+- retain published sources for distributed GPL components.
+
+## APK signing
+
+GitHub Actions currently builds a debug APK. Do not present it as a production release. A public
+release must use a securely retained HOKADIW release keystore and a documented key-rotation and
+recovery procedure.

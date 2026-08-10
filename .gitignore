@@ -1,2 +1,10 @@
+.work/
 __pycache__/
-*.pyc
+*.py[cod]
+*.log
+
+dist/*
+!dist/.gitkeep
+
+docs/apt/*
+!docs/apt/.gitkeep

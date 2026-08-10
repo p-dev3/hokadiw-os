@@ -1,74 +1,104 @@
-# HOKADIW OS Toolkit — Termux Edition Phase 1
+# HOKADIW Terminal Distribution v0.1.1
 
-This repository is the build/control layer for **HOKADIW Termux Edition**.
+HOKADIW Terminal is an experimental, independent Android terminal distribution built from the
+upstream Termux source code. This repository contains the reproducible build overlay—not vendored
+copies of Termux—and produces an ARM64 APK, a custom bootstrap, and a development APT repository.
 
-It intentionally does **not** vendor the full Termux source tree. GitHub Actions clones the official
-[`termux/termux-app`](https://github.com/termux/termux-app) source, applies a small reproducible patch,
-builds debug APKs, and uploads them as workflow artifacts.
+## Identity
 
-## Phase 1 design
+- App name: `HOKADIW Terminal`
+- Android application ID: `com.hokadiw.terminal`
+- Data directory: `/data/data/com.hokadiw.terminal`
+- Root filesystem: `/data/data/com.hokadiw.terminal/files`
+- `HOME`: `/data/data/com.hokadiw.terminal/files/home`
+- `PREFIX`: `/data/data/com.hokadiw.terminal/files/usr`
+- Initial target: Android 7+ / `aarch64` (`arm64-v8a`)
+- Built-in HOKADIW command: `hkd`
 
-- Keep Android package name `com.termux`.
-- Keep the standard Termux `$PREFIX` and existing bootstrap/package ecosystem.
-- Brand the Android app as **HOKADIW Terminal**.
-- Rename generated debug APKs to `hokadiw-termux_*`.
-- Provide the `hkd` dashboard for:
-  - System information
-  - ADB / Shizuku helpers
-  - VPN inspection/tools
-  - VPS / SSH helper
-  - Toolkit update
-- Keep HOKADIW modifications as an overlay so rebasing to newer Termux source is easier.
+The Java namespace remains upstream `com.termux` for v0.1.1. The Android application ID, runtime
+constants, manifest placeholders, shortcuts, package build identity, and bootstrap prefix are
+patched consistently. Keeping the Java namespace avoids a risky whole-tree source rename.
 
-## Important installation note
+## Build flow
 
-Phase 1 keeps `com.termux`. Android therefore treats HOKADIW Termux and official Termux as the same
-application identity. APKs signed with different certificates cannot be installed over each other.
+The `Build HOKADIW Distribution` workflow runs on every push to `main` and can also be started
+manually. It:
 
-**Back up `$HOME` and any important files before uninstalling/replacing an existing Termux build.**
+1. checks out this build overlay;
+2. fetches pinned Termux package and app revisions;
+3. patches the package build identity to `com.hokadiw.terminal`;
+4. adds and builds the custom `hokadiw-tools` package;
+5. builds the ARM64 bootstrap from source;
+6. generates a flat development APT repository;
+7. patches the Android app identity and embeds the custom bootstrap;
+8. builds an ARM64 debug APK; and
+9. uploads the APK, bootstrap, APT repository, checksums, and build metadata.
 
-The GitHub workflow below builds a **debug APK** using the build configuration provided by upstream
-Termux. It is for development/testing, not a production release signing setup.
+The resulting artifact is named `hokadiw-distribution-arm64`.
 
-## Build APK on GitHub Actions
+## GitHub Actions
 
-1. Push this repository to GitHub.
-2. Open **Actions**.
-3. Select **Build HOKADIW Termux**.
-4. Choose **Run workflow**.
-5. Optionally enter an upstream branch/tag/commit. Default: `master`.
-6. Download the artifact named `hokadiw-termux-apks`.
+Open:
 
-For most current Android phones, use the `arm64-v8a` APK. A `universal` APK is also built.
+`https://github.com/p-dev3/hokadiw-os/actions`
 
-## Install the `hkd` dashboard
+A push to `main` starts the build automatically. To run it manually, choose
+**Build HOKADIW Distribution → Run workflow**.
 
-Inside Termux, from this repository:
-
-```sh
-bash install.sh
-```
-
-Then:
-
-```sh
-hkd
-```
-
-## Repository layout
+Expected artifact layout:
 
 ```text
-.github/workflows/build-hokadiw-termux.yml
-scripts/patch_termux.py
-payload/hkd
-install.sh
-NOTICE.md
+hokadiw-distribution-arm64/
+├── apk/
+│   ├── HOKADIW-Terminal-v0.1.1-arm64-debug.apk
+│   └── SHA256SUMS
+├── apt-repo/
+│   ├── Packages
+│   ├── Packages.gz
+│   ├── SHA256SUMS
+│   └── *.deb
+├── bootstrap-aarch64.zip
+└── BUILD_INFO.txt
 ```
 
-## Upstream projects
+## Development APT repository
 
-- https://github.com/termux/termux-app
-- https://github.com/termux/termux-packages
-- https://github.com/termux/termux-tools
+The bootstrap is configured for:
 
-HOKADIW Termux Edition is an independent modification/toolkit and is not an official Termux release.
+`https://p-dev3.github.io/hokadiw-os/apt`
+
+After a successful runtime build, the generated repository can be copied into `docs/apt/` with:
+
+```bash
+bash scripts/publish-dev-repo.sh
+```
+
+Then commit `docs/apt/` and enable GitHub Pages from `main` → `/docs`.
+
+v0.1.1 deliberately uses `[trusted=yes]` only to prove the end-to-end build loop. Before a public
+release, add a persistent HOKADIW GPG signing key, publish a keyring, generate signed
+`Release`/`InRelease` metadata, and remove `trusted=yes`.
+
+## Local build
+
+Use an Ubuntu/Debian Linux host with Docker:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io dpkg-dev git gzip python3 zip unzip
+
+bash scripts/verify.sh
+bash scripts/build-runtime.sh
+bash scripts/build-app.sh
+```
+
+Runtime output is written to `dist/runtime/`; APK output is written to `dist/app/`.
+
+## Status and safety
+
+This is an early development build. The first full GitHub Actions run is the integration test for
+the complete toolchain. Public releases must use a private, durable HOKADIW APK signing key and a
+signed APT repository.
+
+HOKADIW Terminal is derived from upstream Termux projects but is not an official Termux release.
+Upstream licenses and attribution must be preserved for every distributed component.
