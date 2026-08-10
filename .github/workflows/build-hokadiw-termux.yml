@@ -1,0 +1,87 @@
+name: Build HOKADIW Termux
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "termux/termux-app branch, tag, or commit"
+        required: true
+        default: "master"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-hokadiw-termux.yml"
+      - "scripts/patch_termux.py"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout HOKADIW toolkit
+        uses: actions/checkout@v6
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Resolve and clone upstream Termux
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.upstream_ref || 'master' }}
+        run: |
+          set -euo pipefail
+
+          git clone --filter=blob:none https://github.com/termux/termux-app.git termux-app
+          cd termux-app
+          git fetch --depth=1 origin "$REQUESTED_REF"
+          git checkout --detach FETCH_HEAD
+
+          UPSTREAM_SHA="$(git rev-parse HEAD)"
+          echo "UPSTREAM_SHA=$UPSTREAM_SHA" >> "$GITHUB_ENV"
+          echo "UPSTREAM_SHORT_SHA=${UPSTREAM_SHA:0:7}" >> "$GITHUB_ENV"
+
+      - name: Apply HOKADIW overlay
+        run: |
+          python3 scripts/patch_termux.py termux-app
+
+      - name: Build debug APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd termux-app
+
+          export TERMUX_PACKAGE_VARIANT="apt-android-7"
+          export TERMUX_APK_VERSION_TAG="hokadiw-${UPSTREAM_SHORT_SHA}-debug"
+
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Collect APKs and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          cp termux-app/app/build/outputs/apk/debug/*.apk dist/
+          printf '%s\n' "$UPSTREAM_SHA" > dist/UPSTREAM_COMMIT.txt
+
+          (
+            cd dist
+            sha256sum *.apk > SHA256SUMS.txt
+          )
+
+          ls -lh dist
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: hokadiw-termux-apks
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
