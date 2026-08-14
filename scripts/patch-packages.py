@@ -106,11 +106,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    print("Patched termux-packages for HOKADIW")
-    print(f"  package: {args.package}")
-    print(f"  apt URL: {args.apt_url}")
-    print("  internal source name: termux")
-
-
-if __name__ == "__main__":
-    main()
