@@ -30,8 +30,12 @@ def main() -> None:
     properties = root / "scripts/properties.sh"
     apt_build = root / "packages/apt/build.sh"
     bootstrap_build = root / "scripts/build-bootstraps.sh"
+    termux_am_build = root / "packages/termux-am/build.sh"
 
-    if not all(path.is_file() for path in (properties, apt_build, bootstrap_build)):
+    if not all(
+        path.is_file()
+        for path in (properties, apt_build, bootstrap_build, termux_am_build)
+    ):
         raise SystemExit(f"{root} is not a compatible termux-packages checkout")
 
     replace_once(
@@ -82,6 +86,39 @@ def main() -> None:
         'add_termux_bootstrap_second_stage_files "$TERMUX_ARCH"',
     )
 
+    # termux-am v0.8.0 uses AGP 7.4.2, which requires Android Platform 33
+    # and Build Tools 30.0.3. The current package-builder image only ships
+    # newer components, and its shared ANDROID_HOME is not writable by the
+    # builder user, so Gradle cannot install the missing versions itself.
+    # Install the exact required components in the package's writable temp
+    # directory and point Gradle at that isolated SDK root.
+    replace_once(
+        termux_am_build,
+        '''\texport ANDROID_HOME
+\texport GRADLE_OPTS="-Dorg.gradle.daemon=false -Xmx1536m -Dorg.gradle.java.home=/usr/lib/jvm/java-1.17.0-openjdk-amd64"''',
+        '''\tlocal sdk_manager
+\tif [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+\t\tsdk_manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+\telif [ -x "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" ]; then
+\t\tsdk_manager="$ANDROID_HOME/cmdline-tools/bin/sdkmanager"
+\telse
+\t\techo "No usable sdkmanager found in $ANDROID_HOME" >&2
+\t\treturn 1
+\tfi
+
+\tlocal writable_android_home="$TERMUX_PKG_TMPDIR/android-sdk"
+\tmkdir -p "$writable_android_home/licenses"
+\tif [ -d "$ANDROID_HOME/licenses" ]; then
+\t\tcp -R "$ANDROID_HOME/licenses/." "$writable_android_home/licenses/"
+\tfi
+\tyes | "$sdk_manager" --sdk_root="$writable_android_home" --licenses >/dev/null
+\tyes | "$sdk_manager" --sdk_root="$writable_android_home" \\
+\t\t"platforms;android-33" \\
+\t\t"build-tools;30.0.3"
+\texport ANDROID_HOME="$writable_android_home"
+\texport GRADLE_OPTS="-Dorg.gradle.daemon=false -Xmx1536m -Dorg.gradle.java.home=/usr/lib/jvm/java-1.17.0-openjdk-amd64"''',
+    )
+
     marker = root / "HOKADIW_BUILD_IDENTITY.txt"
     marker.write_text(
         "\n".join(
@@ -92,6 +129,7 @@ def main() -> None:
                 "INTERNAL_NAME=termux",
                 "UPSTREAM_BOOTSTRAP_FORCE_CLEAN_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_ARCH_PATCHED=true",
+                "UPSTREAM_TERMUX_AM_SDK_PATCHED=true",
                 "",
             ]
         ),
