@@ -29,8 +29,9 @@ def main() -> None:
     root = args.root.resolve()
     properties = root / "scripts/properties.sh"
     apt_build = root / "packages/apt/build.sh"
+    bootstrap_build = root / "scripts/build-bootstraps.sh"
 
-    if not properties.is_file() or not apt_build.is_file():
+    if not all(path.is_file() for path in (properties, apt_build, bootstrap_build)):
         raise SystemExit(f"{root} is not a compatible termux-packages checkout")
 
     replace_once(
@@ -61,6 +62,26 @@ def main() -> None:
 \t}} > $TERMUX_PREFIX/etc/apt/sources.list"""
     replace_once(apt_build, old_sources, new_sources)
 
+    # The pinned upstream build-bootstraps.sh force-clean path references an
+    # undefined *_FOR_ARCH variable. With `-f`, it expands to `rm -f /*` in
+    # the builder container. Use the directory that the same script defines,
+    # and require both cleanup paths to be non-empty before rm is executed.
+    replace_once(
+        bootstrap_build,
+        '''\t\t\trm -f "$TERMUX_BUILT_PACKAGES_DIRECTORY_FOR_ARCH"/*
+\t\t\trm -f "$TERMUX_BUILT_DEBS_DIRECTORY"/*''',
+        '''\t\t\trm -f -- "${TERMUX_BUILT_PACKAGES_DIRECTORY:?}"/*
+\t\t\trm -f -- "${TERMUX_BUILT_DEBS_DIRECTORY:?}"/*''',
+    )
+
+    # Upstream passes a function-local variable after extract_debs returns,
+    # leaving TERMUX_PACKAGE_ARCH empty in the bootstrap second-stage script.
+    replace_once(
+        bootstrap_build,
+        'add_termux_bootstrap_second_stage_files "$package_arch"',
+        'add_termux_bootstrap_second_stage_files "$TERMUX_ARCH"',
+    )
+
     marker = root / "HOKADIW_BUILD_IDENTITY.txt"
     marker.write_text(
         "\n".join(
@@ -69,12 +90,22 @@ def main() -> None:
                 f"PACKAGE={args.package}",
                 f"APT_URL={args.apt_url}",
                 "INTERNAL_NAME=termux",
+                "UPSTREAM_BOOTSTRAP_FORCE_CLEAN_PATCHED=true",
+                "UPSTREAM_BOOTSTRAP_ARCH_PATCHED=true",
                 "",
             ]
         ),
         encoding="utf-8",
     )
 
+    print("Patched termux-packages for HOKADIW")
+    print(f"  package: {args.package}")
+    print(f"  apt URL: {args.apt_url}")
+    print("  internal source name: termux")
+
+
+if __name__ == "__main__":
+    main()
     print("Patched termux-packages for HOKADIW")
     print(f"  package: {args.package}")
     print(f"  apt URL: {args.apt_url}")
