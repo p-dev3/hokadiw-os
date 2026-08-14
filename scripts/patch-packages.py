@@ -111,7 +111,11 @@ def main() -> None:
 \tif [ -d "$ANDROID_HOME/licenses" ]; then
 \t\tcp -R "$ANDROID_HOME/licenses/." "$writable_android_home/licenses/"
 \tfi
-\tyes | "$sdk_manager" --sdk_root="$writable_android_home" --licenses >/dev/null
+\t# With pipefail enabled, `yes` exits with SIGPIPE (141) after sdkmanager
+\t# has accepted the licenses. Preserve sdkmanager's real exit status so a
+\t# successful license step is not mistaken for a package build failure.
+\tyes | "$sdk_manager" --sdk_root="$writable_android_home" --licenses >/dev/null || \\
+\t\t[ "${PIPESTATUS[1]}" -eq 0 ]
 \tyes | "$sdk_manager" --sdk_root="$writable_android_home" \\
 \t\t"platforms;android-33" \\
 \t\t"build-tools;30.0.3"
