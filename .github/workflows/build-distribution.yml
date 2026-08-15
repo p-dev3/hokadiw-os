@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - "docs/apt/**"
   workflow_dispatch:
 
 permissions: {}
@@ -15,7 +17,7 @@ concurrency:
 jobs:
   build-arm64:
     permissions:
-      contents: read
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -29,13 +31,45 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify fast APK overlay
+      - name: Verify build environment
         run: |
-          command -v curl git java python3 unzip
+          command -v curl git java python3 unzip docker dpkg-deb tar
+          bash -n scripts/build-runtime.sh
           bash -n scripts/build-apk-fast.sh
-          python3 -m py_compile scripts/patch-app.py
+          bash -n scripts/make-flat-repo.sh
+          python3 -m py_compile scripts/patch-packages.py scripts/patch-app.py
+          if ! command -v dpkg-scanpackages >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y dpkg-dev
+          fi
 
-      - name: Build installable HOKADIW APK
+      - name: Build HOKADIW runtime and APT repository
+        run: |
+          set -o pipefail
+          bash scripts/build-runtime.sh 2>&1 | tee build-runtime.log
+
+      - name: Publish HOKADIW APT repository to raw GitHub
+        run: |
+          set -euo pipefail
+          source config.env
+          test -s dist/runtime/apt-repo/Packages
+          test -s dist/runtime/apt-repo/Packages.gz
+
+          rm -rf docs/apt
+          mkdir -p docs/apt
+          cp -a dist/runtime/apt-repo/. docs/apt/
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/apt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(repo): publish HOKADIW v${HOKADIW_VERSION} apt packages [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "APT repository already up to date"
+          fi
+
+      - name: Build installable HOKADIW APK with custom bootstrap
         run: |
           set -o pipefail
           bash scripts/build-apk-fast.sh 2>&1 | tee build-app.log
@@ -45,28 +79,26 @@ jobs:
           set -euo pipefail
           source config.env
 
-          # Validate the APK exists before proceeding.
-          if [ ! -d "dist/app" ]; then
-            echo "ERROR: dist/app not found. Build app step may have failed." >&2
-            exit 1
-          fi
+          test -d dist/app
           test -n "$(find dist/app -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -s dist/runtime/bootstrap-${HOKADIW_ARCH}.zip
+          test -s dist/runtime/apt-repo/Packages.gz
 
-          # Clean and prepare artifact directory
           rm -rf ./artifact
           mkdir -p ./artifact
-
-          # Copy with explicit paths and error checking
           cp -a dist/app ./artifact/apk
+          cp dist/runtime/bootstrap-${HOKADIW_ARCH}.zip ./artifact/
+          cp dist/runtime/HOKADIW_BUILD_IDENTITY.txt ./artifact/
 
-          # Write BUILD_INFO.txt
           {
             echo "HOKADIW Terminal v${HOKADIW_VERSION}"
             echo "Application ID: ${HOKADIW_PACKAGE}"
             echo "PREFIX: /data/data/${HOKADIW_PACKAGE}/files/usr"
             echo "Architecture: ${HOKADIW_ARCH} / ${HOKADIW_ANDROID_ABI}"
             echo "termux-app: ${TERMUX_APP_REF}"
-            echo "Bootstrap: official apt-android-7 ARM64 with HOKADIW prefix rewrite"
+            echo "termux-packages: ${TERMUX_PACKAGES_REF}"
+            echo "APT repository: ${HOKADIW_APT_URL}"
+            echo "Bootstrap: HOKADIW packages compiled natively for ${HOKADIW_PACKAGE}"
             echo "Source commit: ${GITHUB_SHA}"
             echo "Built at: $(date -u +%FT%TZ)"
           } > ./artifact/BUILD_INFO.txt
@@ -85,7 +117,9 @@ jobs:
         with:
           name: hokadiw-build-diagnostics
           path: |
+            build-runtime.log
             build-app.log
+            .work/termux-packages/HOKADIW_BUILD_IDENTITY.txt
             .work/termux-app/HOKADIW_APP_IDENTITY.txt
           if-no-files-found: ignore
           retention-days: 7
