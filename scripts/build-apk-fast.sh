@@ -9,7 +9,7 @@ WORK="${HOKADIW_WORK:-$ROOT/.work}"
 APP_DIR="$WORK/termux-app"
 OUT="$ROOT/dist/app"
 UPSTREAM_PACKAGE="com.termux"
-APK_PACKAGE="${HOKADIW_APK_PACKAGE:-com.termux}"
+APK_PACKAGE="${HOKADIW_APK_PACKAGE:-$HOKADIW_PACKAGE}"
 BOOTSTRAP_VERSION="2026.02.12-r1%2Bapt.android-7"
 BOOTSTRAP_SHA256="ea2aeba8819e517db711f8c32369e89e7c52cee73e07930ff91185e1ab93f4f3"
 BOOTSTRAP_URL="https://github.com/termux/termux-packages/releases/download/bootstrap-${BOOTSTRAP_VERSION}/bootstrap-aarch64.zip"
@@ -17,7 +17,7 @@ UPSTREAM_BOOTSTRAP="$WORK/bootstrap-aarch64-upstream.zip"
 LOCAL_BOOTSTRAP="$APP_DIR/app/src/main/cpp/bootstrap-aarch64.zip"
 
 if [ "${#UPSTREAM_PACKAGE}" -ne "${#APK_PACKAGE}" ]; then
-    echo "Fast APK package must be ${#UPSTREAM_PACKAGE} characters: $APK_PACKAGE" >&2
+    echo "HOKADIW Android package must be ${#UPSTREAM_PACKAGE} characters for safe bootstrap prefix rewriting: $APK_PACKAGE" >&2
     exit 1
 fi
 
