@@ -54,32 +54,14 @@ def main() -> None:
         f'TERMUX_APP__PACKAGE_NAME="{args.package}"',
     )
 
-    # The build system keeps a second set of "repository core variables" that
-    # describes the prefix ABI of packages available from configured repos.
-    # Leaving these at com.termux makes dependency resolution mix official
-    # Termux .debs into a custom-package build. Those .debs contain archive
-    # paths such as ./data/data/com.termux and cannot be installed by the
-    # io.hokadiw app sandbox. Keep every repository identity value aligned
-    # with the actual HOKADIW application data directory.
+    # Keep TERMUX_REPO_* at the upstream ABI on purpose. In this pinned
+    # builder, a mismatch between TERMUX_APP__PACKAGE_NAME and
+    # TERMUX_REPO_APP__PACKAGE_NAME disables -i/-I prebuilt dependency
+    # downloads and forces every dependency to be compiled locally for the
+    # HOKADIW prefix. Aligning both values makes bootstrap construction query
+    # the official binary repositories, where virtual/subpackage names such as
+    # bzip2 cannot be resolved as source recipes.
     data_dir = f"/data/data/{args.package}"
-    repo_core_replacements = {
-        'TERMUX_REPO_APP__PACKAGE_NAME="com.termux"':
-            f'TERMUX_REPO_APP__PACKAGE_NAME="{args.package}"',
-        'TERMUX_REPO_APP__DATA_DIR="/data/data/com.termux"':
-            f'TERMUX_REPO_APP__DATA_DIR="{data_dir}"',
-        'TERMUX_REPO__CORE_DIR="/data/data/com.termux/termux/core"':
-            f'TERMUX_REPO__CORE_DIR="{data_dir}/termux/core"',
-        'TERMUX_REPO__APPS_DIR="/data/data/com.termux/termux/app"':
-            f'TERMUX_REPO__APPS_DIR="{data_dir}/termux/app"',
-        'TERMUX_REPO__ROOTFS="/data/data/com.termux/files"':
-            f'TERMUX_REPO__ROOTFS="{data_dir}/files"',
-        'TERMUX_REPO__HOME="/data/data/com.termux/files/home"':
-            f'TERMUX_REPO__HOME="{data_dir}/files/home"',
-        'TERMUX_REPO__PREFIX="/data/data/com.termux/files/usr"':
-            f'TERMUX_REPO__PREFIX="{data_dir}/files/usr"',
-    }
-    for old, new in repo_core_replacements.items():
-        replace_once(properties, old, new)
 
     old_sources = """\t{
 \t\techo "# The main termux repository, with cloudflare cache"
@@ -155,7 +137,7 @@ def main() -> None:
                 f"PREFIX={data_dir}/files/usr",
                 f"APT_URL={args.apt_url}",
                 "INTERNAL_NAME=termux",
-                "REPOSITORY_CORE_VARIABLES_PATCHED=true",
+                "DEPENDENCIES_FORCED_TO_SOURCE_BUILD=true",
                 "UPSTREAM_BOOTSTRAP_FORCE_CLEAN_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_ARCH_PATCHED=true",
                 "UPSTREAM_TERMUX_AM_SDK_PATCHED=true",
