@@ -116,7 +116,7 @@ def main() -> None:
 \t# successful license step is not mistaken for a package build failure.
 \tyes | "$sdk_manager" --sdk_root="$writable_android_home" --licenses >/dev/null || \\
 \t\t[ "${PIPESTATUS[1]}" -eq 0 ]
-\tyes | "$sdk_manager" --sdk_root="$writable_android_home" \\
+\t"$sdk_manager" --sdk_root="$writable_android_home" \\
 \t\t"platforms;android-33" \\
 \t\t"build-tools;30.0.3"
 \texport ANDROID_HOME="$writable_android_home"
