@@ -29,12 +29,13 @@ def main() -> None:
     root = args.root.resolve()
     properties = root / "scripts/properties.sh"
     apt_build = root / "packages/apt/build.sh"
+    attr_build = root / "packages/attr/build.sh"
     bootstrap_build = root / "scripts/build-bootstraps.sh"
     termux_am_build = root / "packages/termux-am/build.sh"
 
     if not all(
         path.is_file()
-        for path in (properties, apt_build, bootstrap_build, termux_am_build)
+        for path in (properties, apt_build, attr_build, bootstrap_build, termux_am_build)
     ):
         raise SystemExit(f"{root} is not a compatible termux-packages checkout")
 
@@ -62,6 +63,15 @@ def main() -> None:
     # the official binary repositories, where virtual/subpackage names such as
     # bzip2 cannot be resolved as source recipes.
     data_dir = f"/data/data/{args.package}"
+
+    # Savannah HTTP origin is intermittently timing out from GitHub-hosted
+    # runners. Use Savannah official HTTPS download mirror while retaining
+    # the upstream SHA-256 verification.
+    replace_once(
+        attr_build,
+        'TERMUX_PKG_SRCURL="http://download.savannah.gnu.org/releases/attr/attr-${TERMUX_PKG_VERSION}.tar.gz"',
+        'TERMUX_PKG_SRCURL="https://download-mirror.savannah.gnu.org/releases/attr/attr-${TERMUX_PKG_VERSION}.tar.gz"',
+    )
 
     old_sources = """\t{
 \t\techo "# The main termux repository, with cloudflare cache"
@@ -138,6 +148,7 @@ def main() -> None:
                 f"APT_URL={args.apt_url}",
                 "INTERNAL_NAME=termux",
                 "DEPENDENCIES_FORCED_TO_SOURCE_BUILD=true",
+                "ATTR_HTTPS_MIRROR_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_FORCE_CLEAN_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_ARCH_PATCHED=true",
                 "UPSTREAM_TERMUX_AM_SDK_PATCHED=true",
