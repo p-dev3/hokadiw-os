@@ -54,6 +54,33 @@ def main() -> None:
         f'TERMUX_APP__PACKAGE_NAME="{args.package}"',
     )
 
+    # The build system keeps a second set of "repository core variables" that
+    # describes the prefix ABI of packages available from configured repos.
+    # Leaving these at com.termux makes dependency resolution mix official
+    # Termux .debs into a custom-package build. Those .debs contain archive
+    # paths such as ./data/data/com.termux and cannot be installed by the
+    # io.hokadiw app sandbox. Keep every repository identity value aligned
+    # with the actual HOKADIW application data directory.
+    data_dir = f"/data/data/{args.package}"
+    repo_core_replacements = {
+        'TERMUX_REPO_APP__PACKAGE_NAME="com.termux"':
+            f'TERMUX_REPO_APP__PACKAGE_NAME="{args.package}"',
+        'TERMUX_REPO_APP__DATA_DIR="/data/data/com.termux"':
+            f'TERMUX_REPO_APP__DATA_DIR="{data_dir}"',
+        'TERMUX_REPO__CORE_DIR="/data/data/com.termux/termux/core"':
+            f'TERMUX_REPO__CORE_DIR="{data_dir}/termux/core"',
+        'TERMUX_REPO__APPS_DIR="/data/data/com.termux/termux/app"':
+            f'TERMUX_REPO__APPS_DIR="{data_dir}/termux/app"',
+        'TERMUX_REPO__ROOTFS="/data/data/com.termux/files"':
+            f'TERMUX_REPO__ROOTFS="{data_dir}/files"',
+        'TERMUX_REPO__HOME="/data/data/com.termux/files/home"':
+            f'TERMUX_REPO__HOME="{data_dir}/files/home"',
+        'TERMUX_REPO__PREFIX="/data/data/com.termux/files/usr"':
+            f'TERMUX_REPO__PREFIX="{data_dir}/files/usr"',
+    }
+    for old, new in repo_core_replacements.items():
+        replace_once(properties, old, new)
+
     old_sources = """\t{
 \t\techo "# The main termux repository, with cloudflare cache"
 \t\techo "deb https://packages-cf.termux.dev/apt/termux-main/ stable main"
@@ -61,7 +88,7 @@ def main() -> None:
 \t\techo "# deb https://packages.termux.dev/apt/termux-main/ stable main"
 \t} > $TERMUX_PREFIX/etc/apt/sources.list"""
     new_sources = f"""\t{{
-\t\techo "# HOKADIW development repository"
+\t\techo "# HOKADIW package repository - packages are compiled for {args.package}"
 \t\techo "deb [trusted=yes] {args.apt_url} ./"
 \t}} > $TERMUX_PREFIX/etc/apt/sources.list"""
     replace_once(apt_build, old_sources, new_sources)
@@ -90,8 +117,6 @@ def main() -> None:
     # and Build Tools 30.0.3. The current package-builder image only ships
     # newer components, and its shared ANDROID_HOME is not writable by the
     # builder user, so Gradle cannot install the missing versions itself.
-    # Install the exact required components in the package's writable temp
-    # directory and point Gradle at that isolated SDK root.
     replace_once(
         termux_am_build,
         '''\texport ANDROID_HOME
@@ -111,9 +136,6 @@ def main() -> None:
 \tif [ -d "$ANDROID_HOME/licenses" ]; then
 \t\tcp -R "$ANDROID_HOME/licenses/." "$writable_android_home/licenses/"
 \tfi
-\t# With pipefail enabled, `yes` exits with SIGPIPE (141) after sdkmanager
-\t# has accepted the licenses. Preserve sdkmanager's real exit status so a
-\t# successful license step is not mistaken for a package build failure.
 \tyes | "$sdk_manager" --sdk_root="$writable_android_home" --licenses >/dev/null || \\
 \t\t[ "${PIPESTATUS[1]}" -eq 0 ]
 \t"$sdk_manager" --sdk_root="$writable_android_home" \\
@@ -129,8 +151,11 @@ def main() -> None:
             [
                 f"NAME={args.name}",
                 f"PACKAGE={args.package}",
+                f"DATA_DIR={data_dir}",
+                f"PREFIX={data_dir}/files/usr",
                 f"APT_URL={args.apt_url}",
                 "INTERNAL_NAME=termux",
+                "REPOSITORY_CORE_VARIABLES_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_FORCE_CLEAN_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_ARCH_PATCHED=true",
                 "UPSTREAM_TERMUX_AM_SDK_PATCHED=true",
@@ -142,8 +167,9 @@ def main() -> None:
 
     print("Patched termux-packages for HOKADIW")
     print(f"  package: {args.package}")
+    print(f"  prefix: {data_dir}/files/usr")
     print(f"  apt URL: {args.apt_url}")
-    print("  internal source name: termux")
+    print("  repository core variables: patched")
 
 
 if __name__ == "__main__":
