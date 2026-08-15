@@ -105,6 +105,15 @@ def main() -> None:
         'add_termux_bootstrap_second_stage_files "$TERMUX_ARCH"',
     )
 
+    # bzip2 is a binary subpackage, not a source recipe. Building libbz2
+    # produces both libbz2 and bzip2 .deb files, and extract_debs includes all
+    # generated packages in the bootstrap.
+    replace_once(
+        bootstrap_build,
+        '\t\tPACKAGES+=("bzip2")',
+        '\t\tPACKAGES+=("libbz2")',
+    )
+
     # termux-am v0.8.0 uses AGP 7.4.2, which requires Android Platform 33
     # and Build Tools 30.0.3. The current package-builder image only ships
     # newer components, and its shared ANDROID_HOME is not writable by the
@@ -151,6 +160,7 @@ def main() -> None:
                 "ATTR_HTTPS_MIRROR_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_FORCE_CLEAN_PATCHED=true",
                 "UPSTREAM_BOOTSTRAP_ARCH_PATCHED=true",
+                "BOOTSTRAP_BZIP2_SOURCE_PACKAGE_PATCHED=true",
                 "UPSTREAM_TERMUX_AM_SDK_PATCHED=true",
                 "",
             ]
