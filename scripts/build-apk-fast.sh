@@ -9,7 +9,7 @@ WORK="${HOKADIW_WORK:-$ROOT/.work}"
 APP_DIR="$WORK/termux-app"
 OUT="$ROOT/dist/app"
 UPSTREAM_PACKAGE="com.termux"
-APK_PACKAGE="${HOKADIW_APK_PACKAGE:-io.hokadiw}"
+APK_PACKAGE="${HOKADIW_APK_PACKAGE:-com.termux}"
 BOOTSTRAP_VERSION="2026.02.12-r1%2Bapt.android-7"
 BOOTSTRAP_SHA256="ea2aeba8819e517db711f8c32369e89e7c52cee73e07930ff91185e1ab93f4f3"
 BOOTSTRAP_URL="https://github.com/termux/termux-packages/releases/download/bootstrap-${BOOTSTRAP_VERSION}/bootstrap-aarch64.zip"
@@ -53,7 +53,11 @@ if [ ! -f "$UPSTREAM_BOOTSTRAP" ] ||
 fi
 
 mkdir -p "$(dirname -- "$LOCAL_BOOTSTRAP")"
-python3 - "$UPSTREAM_BOOTSTRAP" "$LOCAL_BOOTSTRAP" "$UPSTREAM_PACKAGE" "$APK_PACKAGE" <<'PY'
+if [ "$APK_PACKAGE" = "$UPSTREAM_PACKAGE" ]; then
+    cp "$UPSTREAM_BOOTSTRAP" "$LOCAL_BOOTSTRAP"
+    echo "Using the upstream bootstrap prefix for full package compatibility"
+else
+    python3 - "$UPSTREAM_BOOTSTRAP" "$LOCAL_BOOTSTRAP" "$UPSTREAM_PACKAGE" "$APK_PACKAGE" <<'PY'
 from __future__ import annotations
 
 import copy
@@ -95,6 +99,7 @@ with ZipFile(destination, "r") as result_zip:
 print(f"Rewrote {replacement_count} bootstrap prefix occurrence(s)")
 print(f"  {old_prefix.decode()} -> {new_prefix.decode()}")
 PY
+fi
 
 python3 "$ROOT/scripts/patch-app.py" "$APP_DIR" \
     --package "$APK_PACKAGE" \
