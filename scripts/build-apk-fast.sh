@@ -14,10 +14,13 @@ BOOTSTRAP_VERSION="2026.02.12-r1%2Bapt.android-7"
 BOOTSTRAP_SHA256="ea2aeba8819e517db711f8c32369e89e7c52cee73e07930ff91185e1ab93f4f3"
 BOOTSTRAP_URL="https://github.com/termux/termux-packages/releases/download/bootstrap-${BOOTSTRAP_VERSION}/bootstrap-aarch64.zip"
 UPSTREAM_BOOTSTRAP="$WORK/bootstrap-aarch64-upstream.zip"
+CUSTOM_BOOTSTRAP="$ROOT/dist/runtime/bootstrap-${HOKADIW_ARCH}.zip"
 LOCAL_BOOTSTRAP="$APP_DIR/app/src/main/cpp/bootstrap-aarch64.zip"
+SELECTED_BOOTSTRAP_SOURCE=""
+SELECTED_BOOTSTRAP_SHA256=""
 
 if [ "${#UPSTREAM_PACKAGE}" -ne "${#APK_PACKAGE}" ]; then
-    echo "HOKADIW Android package must be ${#UPSTREAM_PACKAGE} characters for safe bootstrap prefix rewriting: $APK_PACKAGE" >&2
+    echo "HOKADIW Android package must be ${#UPSTREAM_PACKAGE} characters for safe compatibility rewriting: $APK_PACKAGE" >&2
     exit 1
 fi
 
@@ -41,65 +44,72 @@ checkout_ref \
     "$TERMUX_APP_REF" \
     "$APP_DIR"
 
-if [ ! -f "$UPSTREAM_BOOTSTRAP" ] ||
-    ! printf '%s  %s\n' "$BOOTSTRAP_SHA256" "$UPSTREAM_BOOTSTRAP" | sha256sum -c - >/dev/null 2>&1; then
-    rm -f "$UPSTREAM_BOOTSTRAP.tmp"
-    curl --fail --location \
-        --retry 5 --retry-delay 2 --retry-all-errors \
-        --output "$UPSTREAM_BOOTSTRAP.tmp" \
-        "$BOOTSTRAP_URL"
-    printf '%s  %s\n' "$BOOTSTRAP_SHA256" "$UPSTREAM_BOOTSTRAP.tmp" | sha256sum -c -
-    mv "$UPSTREAM_BOOTSTRAP.tmp" "$UPSTREAM_BOOTSTRAP"
+mkdir -p "$(dirname -- "$LOCAL_BOOTSTRAP")"
+
+# Correct standalone builds must use a bootstrap produced by build-runtime.sh.
+# That bootstrap contains packages compiled natively for io.hokadiw and an APT
+# source pointing to the HOKADIW package repository. The upstream bootstrap is
+# retained only as a compatibility fallback for com.termux builds.
+if [ -f "$CUSTOM_BOOTSTRAP" ]; then
+    cp "$CUSTOM_BOOTSTRAP" "$LOCAL_BOOTSTRAP"
+    SELECTED_BOOTSTRAP_SOURCE="dist/runtime/bootstrap-${HOKADIW_ARCH}.zip"
+    SELECTED_BOOTSTRAP_SHA256="$(sha256sum "$CUSTOM_BOOTSTRAP" | awk '{print $1}')"
+    echo "Using HOKADIW runtime bootstrap: $CUSTOM_BOOTSTRAP"
+elif [ "$APK_PACKAGE" = "$UPSTREAM_PACKAGE" ]; then
+    if [ ! -f "$UPSTREAM_BOOTSTRAP" ] ||
+        ! printf '%s  %s\n' "$BOOTSTRAP_SHA256" "$UPSTREAM_BOOTSTRAP" | sha256sum -c - >/dev/null 2>&1; then
+        rm -f "$UPSTREAM_BOOTSTRAP.tmp"
+        curl --fail --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            --output "$UPSTREAM_BOOTSTRAP.tmp" \
+            "$BOOTSTRAP_URL"
+        printf '%s  %s\n' "$BOOTSTRAP_SHA256" "$UPSTREAM_BOOTSTRAP.tmp" | sha256sum -c -
+        mv "$UPSTREAM_BOOTSTRAP.tmp" "$UPSTREAM_BOOTSTRAP"
+    fi
+    cp "$UPSTREAM_BOOTSTRAP" "$LOCAL_BOOTSTRAP"
+    SELECTED_BOOTSTRAP_SOURCE="$BOOTSTRAP_URL"
+    SELECTED_BOOTSTRAP_SHA256="$BOOTSTRAP_SHA256"
+    echo "Using upstream bootstrap for com.termux compatibility build"
+else
+    echo "ERROR: standalone $APK_PACKAGE build requires $CUSTOM_BOOTSTRAP" >&2
+    echo "Run scripts/build-runtime.sh before scripts/build-apk-fast.sh" >&2
+    exit 1
 fi
 
-mkdir -p "$(dirname -- "$LOCAL_BOOTSTRAP")"
-if [ "$APK_PACKAGE" = "$UPSTREAM_PACKAGE" ]; then
-    cp "$UPSTREAM_BOOTSTRAP" "$LOCAL_BOOTSTRAP"
-    echo "Using the upstream bootstrap prefix for full package compatibility"
-else
-    python3 - "$UPSTREAM_BOOTSTRAP" "$LOCAL_BOOTSTRAP" "$UPSTREAM_PACKAGE" "$APK_PACKAGE" <<'PY'
-from __future__ import annotations
-
-import copy
-import sys
+# Scan decompressed bootstrap members. A standalone build must not contain the
+# old Termux data prefix anywhere, while it must contain the HOKADIW prefix.
+python3 - "$LOCAL_BOOTSTRAP" "$UPSTREAM_PACKAGE" "$APK_PACKAGE" <<'PY'
 from pathlib import Path
 from zipfile import ZipFile
+import sys
 
-source = Path(sys.argv[1])
-destination = Path(sys.argv[2])
-old_package = sys.argv[3]
-new_package = sys.argv[4]
-
+archive = Path(sys.argv[1])
+old_package = sys.argv[2]
+new_package = sys.argv[3]
 old_prefix = f"/data/data/{old_package}".encode()
 new_prefix = f"/data/data/{new_package}".encode()
-if len(old_prefix) != len(new_prefix):
-    raise SystemExit("Bootstrap prefixes must have identical byte lengths")
+old_count = 0
+new_count = 0
+old_members = []
+with ZipFile(archive, "r") as zf:
+    for info in zf.infolist():
+        data = zf.read(info.filename)
+        count_old = data.count(old_prefix)
+        count_new = data.count(new_prefix)
+        if count_old:
+            old_members.append(info.filename)
+            old_count += count_old
+        new_count += count_new
 
-replacement_count = 0
-with ZipFile(source, "r") as input_zip, ZipFile(destination, "w", allowZip64=True) as output_zip:
-    for original_info in input_zip.infolist():
-        data = input_zip.read(original_info.filename)
-        count = data.count(old_prefix)
-        if count:
-            data = data.replace(old_prefix, new_prefix)
-            replacement_count += count
-
-        output_info = copy.copy(original_info)
-        output_zip.writestr(output_info, data)
-
-if replacement_count == 0:
-    destination.unlink(missing_ok=True)
-    raise SystemExit(f"No {old_prefix.decode()} paths found in bootstrap")
-
-with ZipFile(destination, "r") as result_zip:
-    for info in result_zip.infolist():
-        if old_prefix in result_zip.read(info.filename):
-            raise SystemExit(f"Unpatched prefix remains in {info.filename}")
-
-print(f"Rewrote {replacement_count} bootstrap prefix occurrence(s)")
-print(f"  {old_prefix.decode()} -> {new_prefix.decode()}")
+if old_package != new_package and old_count:
+    raise SystemExit(
+        f"Bootstrap still contains {old_count} occurrence(s) of {old_prefix.decode()} "
+        f"in: {old_members[:10]}"
+    )
+if new_count == 0:
+    raise SystemExit(f"Bootstrap contains no {new_prefix.decode()} references")
+print(f"Bootstrap prefix verification passed: {new_count} HOKADIW reference(s), 0 stale Termux reference(s)")
 PY
-fi
 
 python3 "$ROOT/scripts/patch-app.py" "$APP_DIR" \
     --package "$APK_PACKAGE" \
@@ -129,8 +139,9 @@ fi
 mkdir -p "$OUT"
 cp "${apks[0]}" "$OUT/HOKADIW-Terminal-v${HOKADIW_VERSION}-arm64-debug.apk"
 cp "$APP_DIR/HOKADIW_APP_IDENTITY.txt" "$OUT/"
-printf 'BOOTSTRAP_SOURCE=%s\nBOOTSTRAP_SHA256=%s\n' \
-    "$BOOTSTRAP_URL" "$BOOTSTRAP_SHA256" >> "$OUT/HOKADIW_APP_IDENTITY.txt"
+printf 'BOOTSTRAP_SOURCE=%s\nBOOTSTRAP_SHA256=%s\nAPT_URL=%s\n' \
+    "$SELECTED_BOOTSTRAP_SOURCE" "$SELECTED_BOOTSTRAP_SHA256" "$HOKADIW_APT_URL" \
+    >> "$OUT/HOKADIW_APP_IDENTITY.txt"
 (
     cd "$OUT"
     sha256sum ./*.apk > SHA256SUMS
