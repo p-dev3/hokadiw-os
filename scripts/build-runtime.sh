@@ -59,6 +59,32 @@ while IFS= read -r -d '' deb; do
     cp -f "$deb" "$OUT/debs/"
 done < <(find "$PACKAGES_DIR/output" -type f -name '*.deb' -print0)
 
+# A custom Android application id requires every Debian payload path to use
+# the custom data directory. Official Termux packages contain paths rooted at
+# ./data/data/com.termux and Android will deny io.hokadiw access to them.
+# Fail the build before publishing if even one package has the old root.
+old_root="./data/data/com.termux"
+new_root="./data/data/${HOKADIW_PACKAGE}"
+checked=0
+for deb in "$OUT"/debs/*.deb; do
+    checked=$((checked + 1))
+    listing="$(dpkg-deb --fsys-tarfile "$deb" | tar -tf -)"
+    if grep -Fq "$old_root" <<<"$listing"; then
+        echo "ERROR: package still contains Termux payload paths: $deb" >&2
+        grep -F "$old_root" <<<"$listing" | head -20 >&2
+        exit 1
+    fi
+    if ! grep -Fq "$new_root" <<<"$listing"; then
+        echo "ERROR: package does not contain the HOKADIW payload root: $deb" >&2
+        exit 1
+    fi
+done
+if [ "$checked" -eq 0 ]; then
+    echo "ERROR: runtime build produced no .deb packages" >&2
+    exit 1
+fi
+echo "Verified $checked package(s): all payload paths target $new_root"
+
 bash "$ROOT/scripts/make-flat-repo.sh" "$OUT/debs" "$OUT/apt-repo"
 
 cp "$PACKAGES_DIR/HOKADIW_BUILD_IDENTITY.txt" "$OUT/"
