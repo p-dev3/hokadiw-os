@@ -62,11 +62,11 @@ jobs:
           # Write BUILD_INFO.txt
           {
             echo "HOKADIW Terminal v${HOKADIW_VERSION}"
-            echo "Application ID: com.termux (compatibility build)"
-            echo "PREFIX: /data/data/com.termux/files/usr"
+            echo "Application ID: ${HOKADIW_PACKAGE}"
+            echo "PREFIX: /data/data/${HOKADIW_PACKAGE}/files/usr"
             echo "Architecture: ${HOKADIW_ARCH} / ${HOKADIW_ANDROID_ABI}"
             echo "termux-app: ${TERMUX_APP_REF}"
-            echo "Bootstrap: official apt-android-7 ARM64"
+            echo "Bootstrap: official apt-android-7 ARM64 with HOKADIW prefix rewrite"
             echo "Source commit: ${GITHUB_SHA}"
             echo "Built at: $(date -u +%FT%TZ)"
           } > ./artifact/BUILD_INFO.txt
