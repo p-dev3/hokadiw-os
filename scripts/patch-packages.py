@@ -168,12 +168,6 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print("Patched termux-packages for HOKADIW")
-    print(f"  package: {args.package}")
-    print(f"  prefix: {data_dir}/files/usr")
-    print(f"  apt URL: {args.apt_url}")
-    print("  repository core variables: patched")
-
 
 if __name__ == "__main__":
     main()
