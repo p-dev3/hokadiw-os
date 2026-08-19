@@ -38,6 +38,47 @@ python3 "$ROOT/scripts/patch-packages.py" "$PACKAGES_DIR" \
     --owner "$HOKADIW_GITHUB_OWNER" \
     --apt-url "$HOKADIW_APT_URL"
 
+# Fail before the expensive Docker build if the patched bootstrap package list
+# contains a binary-only subpackage name with no source build recipe. This is
+# what previously allowed `bzip2` to fail only after large dependencies had
+# already compiled; the source recipe is `libbz2`, which emits bzip2 as a
+# subpackage.
+python3 - "$PACKAGES_DIR" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root = Path(sys.argv[1])
+bootstrap = root / "scripts/build-bootstraps.sh"
+text = bootstrap.read_text(encoding="utf-8")
+
+packages = set(re.findall(r'PACKAGES\+=\("([A-Za-z0-9+._-]+)"\)', text))
+packages.add("hokadiw-tools")
+channels = ("packages", "root-packages", "x11-packages")
+missing = []
+for package in sorted(packages):
+    if not any((root / channel / package / "build.sh").is_file() for channel in channels):
+        missing.append(package)
+
+if missing:
+    raise SystemExit(
+        "Bootstrap preflight found package name(s) without source build recipes: "
+        + ", ".join(missing)
+    )
+
+if 'PACKAGES+=("bzip2")' in text:
+    raise SystemExit(
+        "Bootstrap preflight found stale binary subpackage bzip2; build libbz2 instead"
+    )
+if 'PACKAGES+=("libbz2")' not in text:
+    raise SystemExit("Bootstrap preflight did not find patched libbz2 source package")
+
+print(
+    f"Bootstrap source-recipe preflight passed: {len(packages)} package name(s), "
+    "including libbz2 and hokadiw-tools"
+)
+PY
+
 (
     cd "$PACKAGES_DIR"
     ./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
