@@ -6,6 +6,7 @@ on:
       - main
     paths-ignore:
       - "docs/apt/**"
+      - "docs/ci/**"
   workflow_dispatch:
 
 permissions: {}
@@ -41,6 +42,27 @@ jobs:
           if ! command -v dpkg-scanpackages >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y dpkg-dev
+          fi
+
+      - name: Publish workflow run locator
+        run: |
+          set -euo pipefail
+          mkdir -p docs/ci
+          {
+            echo "RUN_ID=${GITHUB_RUN_ID}"
+            echo "RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+            echo "SOURCE_SHA=${GITHUB_SHA}"
+            echo "SOURCE_REF=${GITHUB_REF}"
+            echo "WORKFLOW=${GITHUB_WORKFLOW}"
+            echo "STARTED_AT=$(date -u +%FT%TZ)"
+          } > docs/ci/latest-run.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/ci/latest-run.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(ci): record workflow run ${GITHUB_RUN_ID} [skip ci]"
+            git push origin HEAD:main
           fi
 
       - name: Build HOKADIW runtime and APT repository
